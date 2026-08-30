@@ -80,23 +80,26 @@
     user-select:none;
     -webkit-user-select:none;
   }
-  .stage img#bgImg{
+  .stage canvas#compCanvas{
     display:block;
     width:100%;
     height:auto;
     pointer-events:none;
-    -webkit-user-drag:none;
+  }
+  #vid{
+    /* Source video is never shown directly — its frames are drawn into
+       the canvas each frame. Kept out of display:none so mobile browsers
+       keep decoding frames, but visually and interactively invisible. */
+    position:absolute;
+    top:0; left:0;
+    width:2px; height:2px;
+    opacity:0;
+    pointer-events:none;
   }
   .overlay{
     position:absolute;
     top:0; left:0;
     transform-origin: 0 0;
-  }
-  .overlay video{
-    position:absolute;
-    top:0; left:0;
-    display:block;
-    pointer-events:none;
   }
   .overlay svg{
     position:absolute;
@@ -372,9 +375,9 @@
 
   <div class="stage-wrap">
     <div class="stage" id="stage">
-      <img id="bgImg" src="assets/laptop-mockup.png" alt="Laptop mockup" draggable="false">
+      <canvas id="compCanvas" width="1537" height="1023"></canvas>
+      <video id="vid" src="assets/logo-reveal.mp4" muted loop playsinline autoplay></video>
       <div class="overlay" id="overlay">
-        <video id="vid" src="assets/logo-reveal.mp4" muted loop playsinline autoplay></video>
         <svg id="svgLayer">
           <polygon id="quad" class="quad-outline" points=""></polygon>
           <g id="handles"></g>
@@ -525,10 +528,11 @@
 
   dimsLabel.textContent = 'gambar ' + IMG_W + '×' + IMG_H + '  ·  video ' + VID_W + '×' + VID_H;
 
+  const canvas = document.getElementById('compCanvas');
+  const ctx = canvas.getContext('2d');
+
   overlay.style.width = IMG_W + 'px';
   overlay.style.height = IMG_H + 'px';
-  vid.style.width = VID_W + 'px';
-  vid.style.height = VID_H + 'px';
   svgLayer.setAttribute('width', IMG_W);
   svgLayer.setAttribute('height', IMG_H);
   svgLayer.setAttribute('viewBox', '0 0 ' + IMG_W + ' ' + IMG_H);
@@ -578,41 +582,66 @@
     return { wrap, xInput, yInput };
   });
 
-  // -- Perspective corner-pin matrix3d (maps rect 0,0,w,h to arbitrary quad) --
-  function getMatrix3d(w, h, pts) {
-    const x0=pts[0].x, y0=pts[0].y,
-          x1=pts[1].x, y1=pts[1].y,
-          x2=pts[2].x, y2=pts[2].y,
-          x3=pts[3].x, y3=pts[3].y;
+  // -- Background image, drawn into the canvas every frame --
+  const bgImage = new Image();
+  let bgLoaded = false;
+  bgImage.onload = () => { bgLoaded = true; };
+  bgImage.src = 'assets/laptop-mockup.png';
 
-    const dx1 = x1 - x2, dy1 = y1 - y2,
-          dx2 = x3 - x2, dy2 = y3 - y2,
-          sx  = x0 - x1 + x2 - x3, sy = y0 - y1 + y2 - y3;
+  // -- Draw one warped triangle: maps srcPts (in video pixel space) onto
+  //    dstPts (in canvas/image pixel space) using an affine transform,
+  //    clipped to the destination triangle. Splitting the quad into two
+  //    triangles (TL-TR-BL and TR-BR-BL) gives a keystone/perspective-like
+  //    warp entirely in 2D canvas — no reliance on CSS 3D transforms on
+  //    <video>, which mobile browsers frequently ignore because video
+  //    frames are composited via a hardware overlay layer. --
+  function drawTriangle(image, srcPts, dstPts) {
+    const [s0, s1, s2] = srcPts;
+    const [d0, d1, d2] = dstPts;
 
-    const denom = (dx1 * dy2 - dx2 * dy1);
-    const g = (sx * dy2 - dx2 * sy) / denom;
-    const h_ = (dx1 * sy - sx * dy1) / denom;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(d0.x, d0.y);
+    ctx.lineTo(d1.x, d1.y);
+    ctx.lineTo(d2.x, d2.y);
+    ctx.closePath();
+    ctx.clip();
 
-    const a = x1 - x0 + g * x1;
-    const b = x3 - x0 + h_ * x3;
-    const c = x0;
-    const d = y1 - y0 + g * y1;
-    const e = y3 - y0 + h_ * y3;
-    const f = y0;
-
-    return [
-      a/w, d/w, 0, g/w,
-      b/h, e/h, 0, h_/h,
-      0,   0,   1, 0,
-      c,   f,   0, 1
-    ];
+    const denom = s0.x * (s1.y - s2.y) + s1.x * (s2.y - s0.y) + s2.x * (s0.y - s1.y);
+    if (Math.abs(denom) > 1e-6) {
+      const a = (d0.x * (s1.y - s2.y) + d1.x * (s2.y - s0.y) + d2.x * (s0.y - s1.y)) / denom;
+      const b = (d0.y * (s1.y - s2.y) + d1.y * (s2.y - s0.y) + d2.y * (s0.y - s1.y)) / denom;
+      const c = (d0.x * (s2.x - s1.x) + d1.x * (s0.x - s2.x) + d2.x * (s1.x - s0.x)) / denom;
+      const d = (d0.y * (s2.x - s1.x) + d1.y * (s0.x - s2.x) + d2.y * (s1.x - s0.x)) / denom;
+      const e = (d0.x * (s1.x*s2.y - s2.x*s1.y) + d1.x * (s2.x*s0.y - s0.x*s2.y) + d2.x * (s0.x*s1.y - s1.x*s0.y)) / denom;
+      const f = (d0.y * (s1.x*s2.y - s2.x*s1.y) + d1.y * (s2.x*s0.y - s0.x*s2.y) + d2.y * (s0.x*s1.y - s1.x*s0.y)) / denom;
+      ctx.setTransform(a, b, c, d, e, f);
+      ctx.drawImage(image, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    ctx.restore();
   }
 
-  function render() {
-    // video transform
-    const m = getMatrix3d(VID_W, VID_H, corners);
-    vid.style.transform = 'matrix3d(' + m.map(n => Number(n.toFixed(6))).join(',') + ')';
+  function drawComposite() {
+    ctx.clearRect(0, 0, IMG_W, IMG_H);
+    if (bgLoaded) ctx.drawImage(bgImage, 0, 0, IMG_W, IMG_H);
 
+    if (vid.readyState >= 2) { // HAVE_CURRENT_DATA or better
+      const [tl, tr, br, bl] = corners;
+      drawTriangle(vid, [{x:0,y:0}, {x:VID_W,y:0}, {x:0,y:VID_H}], [tl, tr, bl]);
+      drawTriangle(vid, [{x:VID_W,y:0}, {x:VID_W,y:VID_H}, {x:0,y:VID_H}], [tr, br, bl]);
+    }
+  }
+
+  // Continuous draw loop — keeps the composite live while the video plays
+  // and gives instant feedback while dragging handles.
+  function loop() {
+    drawComposite();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  function render() {
     // quad outline
     quad.setAttribute('points', corners.map(p => p.x + ',' + p.y).join(' '));
 
