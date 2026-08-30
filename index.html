@@ -232,6 +232,55 @@
   button svg{ width:14px; height:14px; flex-shrink:0; }
   button.icon-only{ padding:8px; }
 
+  .dpad-row{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    justify-content:space-between;
+  }
+  .dpad{
+    display:grid;
+    grid-template-columns: repeat(3, 34px);
+    grid-template-rows: repeat(3, 34px);
+    gap:4px;
+    flex-shrink:0;
+  }
+  .dpad button{
+    padding:0;
+    width:34px; height:34px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .dpad button svg{ width:15px; height:15px; }
+  .dpad-up{ grid-column:2; grid-row:1; }
+  .dpad-left{ grid-column:1; grid-row:2; }
+  .dpad-center{ grid-column:2; grid-row:2; border-color:var(--accent-dim); }
+  .dpad-right{ grid-column:3; grid-row:2; }
+  .dpad-down{ grid-column:2; grid-row:3; }
+  .dpad-side{
+    flex:1;
+    min-width:0;
+  }
+  .mini-label{
+    display:block;
+    font-size:10px;
+    font-family:var(--mono);
+    color:var(--text-dim);
+    margin:0 0 3px 0;
+  }
+  .dpad-side input{
+    width:100%;
+    background:var(--panel);
+    border:1px solid var(--border);
+    color:var(--text);
+    border-radius:4px;
+    padding:5px 6px;
+    font-family:var(--mono);
+    font-size:12px;
+    margin-bottom:8px;
+  }
+  .dpad-side input:focus{ outline:none; border-color:var(--accent); }
+  .dpad-side .btn-row button{ flex:1; justify-content:center; }
+
   .control-grid{
     display:grid;
     grid-template-columns: repeat(4, 1fr);
@@ -343,6 +392,47 @@
       </h2>
       <div class="corner-grid" id="cornerInputs"></div>
       <div class="hint">Bisa diketik langsung, atau tarik titik hijau di preview. Urutan: kiri-atas → kanan-atas → kanan-bawah → kiri-bawah.</div>
+    </section>
+
+    <section class="block">
+      <h2>
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l3 3 3-3"/><path d="M19 9l3 3-3 3"/><path d="M2 12h20"/><path d="M12 2v20"/></svg>
+        Geser &amp; Skala (semua sudut sekaligus)
+      </h2>
+      <div class="dpad-row">
+        <div class="dpad">
+          <button class="icon-only dpad-up" data-move="up" title="Geser ke atas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+          </button>
+          <button class="icon-only dpad-left" data-move="left" title="Geser ke kiri">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="M12 5l-7 7 7 7"/></svg>
+          </button>
+          <button class="icon-only dpad-center" id="btnDeselect" title="Edit semua sudut (lepas pilihan)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l4 4 10-10"/><path d="M19 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+          <button class="icon-only dpad-right" data-move="right" title="Geser ke kanan">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+          </button>
+          <button class="icon-only dpad-down" data-move="down" title="Geser ke bawah">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
+          </button>
+        </div>
+        <div class="dpad-side">
+          <label class="mini-label">Langkah geser (px)</label>
+          <input type="number" id="moveStep" value="5" min="1" step="1">
+          <label class="mini-label">Langkah skala (%)</label>
+          <input type="number" id="scaleStep" value="2" min="1" step="1">
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="icon-only" id="btnScaleDown" title="Perkecil">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button class="icon-only" id="btnScaleUp" title="Perbesar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="hint">Tanpa sudut yang dipilih (titik hijau tidak menyala), tombol panah keyboard &amp; tombol <code>+</code>/<code>-</code> juga menggeser/menyekala semua sudut sekaligus. Klik satu titik dulu kalau mau atur sudut itu saja (perspektif).</div>
     </section>
 
     <section class="block">
@@ -603,17 +693,77 @@
   });
   window.addEventListener('pointerup', () => { dragging = false; });
 
-  // keyboard nudge
+  // -- Move / scale the whole quad together --
+  function moveQuad(dx, dy) {
+    corners.forEach(p => { p.x += dx; p.y += dy; });
+    render();
+  }
+  function scaleQuad(factor) {
+    const cx = corners.reduce((s,p) => s + p.x, 0) / corners.length;
+    const cy = corners.reduce((s,p) => s + p.y, 0) / corners.length;
+    corners.forEach(p => {
+      p.x = cx + (p.x - cx) * factor;
+      p.y = cy + (p.y - cy) * factor;
+    });
+    render();
+  }
+
+  const moveStepInput = document.getElementById('moveStep');
+  const scaleStepInput = document.getElementById('scaleStep');
+  function getMoveStep() { return parseFloat(moveStepInput.value) || 1; }
+  function getScaleFactor() { return 1 + (parseFloat(scaleStepInput.value) || 1) / 100; }
+
+  document.querySelectorAll('.dpad [data-move]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const step = getMoveStep();
+      const dir = btn.dataset.move;
+      if (dir === 'up') moveQuad(0, -step);
+      else if (dir === 'down') moveQuad(0, step);
+      else if (dir === 'left') moveQuad(-step, 0);
+      else if (dir === 'right') moveQuad(step, 0);
+    });
+  });
+  document.getElementById('btnDeselect').addEventListener('click', () => {
+    selectedIndex = -1;
+    render();
+  });
+  document.getElementById('btnScaleUp').addEventListener('click', () => scaleQuad(getScaleFactor()));
+  document.getElementById('btnScaleDown').addEventListener('click', () => scaleQuad(1 / getScaleFactor()));
+
+  // deselect when clicking empty stage area
+  svgLayer.addEventListener('pointerdown', (e) => {
+    if (e.target === svgLayer) {
+      selectedIndex = -1;
+      render();
+    }
+  });
+
+  // keyboard: arrows move (single corner if selected, whole quad otherwise), +/- scales the whole quad
   window.addEventListener('keydown', (e) => {
-    if (selectedIndex === -1) return;
-    const step = e.shiftKey ? 10 : 1;
-    let handled = true;
-    if (e.key === 'ArrowLeft') corners[selectedIndex].x -= step;
-    else if (e.key === 'ArrowRight') corners[selectedIndex].x += step;
-    else if (e.key === 'ArrowUp') corners[selectedIndex].y -= step;
-    else if (e.key === 'ArrowDown') corners[selectedIndex].y += step;
-    else handled = false;
-    if (handled) { e.preventDefault(); render(); }
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return; // don't hijack typing
+
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); scaleQuad(getScaleFactor()); return; }
+    if (e.key === '-' || e.key === '_') { e.preventDefault(); scaleQuad(1 / getScaleFactor()); return; }
+
+    const isArrow = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key);
+    if (!isArrow) return;
+    e.preventDefault();
+
+    if (selectedIndex === -1) {
+      const step = e.shiftKey ? getMoveStep() * 5 : getMoveStep();
+      if (e.key === 'ArrowLeft') moveQuad(-step, 0);
+      else if (e.key === 'ArrowRight') moveQuad(step, 0);
+      else if (e.key === 'ArrowUp') moveQuad(0, -step);
+      else if (e.key === 'ArrowDown') moveQuad(0, step);
+    } else {
+      const step = e.shiftKey ? 10 : 1;
+      if (e.key === 'ArrowLeft') corners[selectedIndex].x -= step;
+      else if (e.key === 'ArrowRight') corners[selectedIndex].x += step;
+      else if (e.key === 'ArrowUp') corners[selectedIndex].y -= step;
+      else if (e.key === 'ArrowDown') corners[selectedIndex].y += step;
+      render();
+    }
   });
 
   // -- Preset buttons --
